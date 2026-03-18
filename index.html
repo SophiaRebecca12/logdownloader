@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Log Downloader</title>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f2f0ec;--surface:#fff;--surface2:#f0ede8;
+  --border:rgba(0,0,0,.09);--border-md:rgba(0,0,0,.17);
+  --text:#18180f;--text2:#5a5954;--text3:#96948d;
+  --accent:#185fa5;
+  --info-bg:#e6f1fb;--info-fg:#185fa5;
+  --ok-fg:#3b6d11;--warn-fg:#854f0b;--err-fg:#a32d2d;
+  --r:8px;--rl:12px;
+  --mono:'JetBrains Mono','Fira Mono','Cascadia Code',monospace;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#111110;--surface:#1c1c1a;--surface2:#252522;
+  --border:rgba(255,255,255,.07);--border-md:rgba(255,255,255,.14);
+  --text:#edebe4;--text2:#a6a39c;--text3:#66635c;
+  --accent:#85b7eb;
+  --info-bg:#042c53;--info-fg:#85b7eb;
+  --ok-fg:#97c459;--warn-fg:#ef9f27;--err-fg:#f09595;
+}}
+body{font-family:var(--mono);background:var(--bg);color:var(--text);min-height:100vh}
+.shell{display:grid;grid-template-columns:310px 1fr;min-height:100vh}
+.sidebar{background:var(--surface);border-right:.5px solid var(--border);
+  padding:1.25rem 1rem;display:flex;flex-direction:column;gap:1.1rem;overflow-y:auto}
+.main{padding:1.25rem;display:flex;flex-direction:column;gap:1rem;overflow-y:auto}
+.app-name{font-size:13px;font-weight:500;padding-bottom:.9rem;
+  border-bottom:.5px solid var(--border);color:var(--text)}
+.app-name em{color:var(--text3);font-style:normal}
+.blk-label{font-size:10px;font-weight:500;color:var(--text3);
+  text-transform:uppercase;letter-spacing:.1em;margin-bottom:7px}
+.field{display:flex;flex-direction:column;gap:3px}
+.field label{font-size:11px;color:var(--text2)}
+.field input,.field select{font-family:var(--mono);font-size:12px;padding:6px 9px;
+  border:.5px solid var(--border-md);border-radius:var(--r);
+  background:var(--surface2);color:var(--text);outline:none;width:100%;transition:border-color .15s}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.env-row{display:flex;border:.5px solid var(--border-md);border-radius:var(--r);overflow:hidden}
+.env-btn{flex:1;padding:6px 0;font-family:var(--mono);font-size:11px;border:none;
+  background:transparent;cursor:pointer;color:var(--text2);
+  border-right:.5px solid var(--border);transition:background .12s}
+.env-btn:last-child{border-right:none}
+.env-btn.on{background:var(--surface2);color:var(--text);font-weight:500}
+.tag-wrap{display:flex;flex-wrap:wrap;gap:5px;padding:5px 8px;
+  border:.5px solid var(--border-md);border-radius:var(--r);
+  background:var(--surface2);min-height:34px;align-items:center;cursor:text}
+.tag-wrap input{border:none;background:transparent;font-family:var(--mono);font-size:12px;
+  outline:none;min-width:80px;flex:1;color:var(--text);padding:0}
+.tag{display:inline-flex;align-items:center;gap:3px;background:var(--info-bg);
+  color:var(--info-fg);font-size:11px;padding:2px 7px;border-radius:5px;white-space:nowrap}
+.tag button{background:none;border:none;cursor:pointer;color:inherit;
+  font-size:13px;line-height:1;padding:0;opacity:.6}
+.tag button:hover{opacity:1}
+.srv-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.srv{border:.5px solid var(--border);border-radius:var(--r);padding:7px 9px;
+  display:flex;align-items:center;gap:6px;cursor:pointer;transition:background .12s;user-select:none}
+.srv:hover{background:var(--surface2)}
+.srv.on{border-color:var(--accent);background:var(--info-bg)}
+.srv .dot{width:6px;height:6px;border-radius:50%;background:var(--border-md);flex-shrink:0}
+.srv.on .dot{background:var(--accent)}
+.srv span{font-size:11px;color:var(--text)}
+.srv.on span{color:var(--info-fg)}
+.uuid-toolbar{display:flex;gap:5px;margin-bottom:6px}
+.uuid-toolbar button{flex:1;font-family:var(--mono);font-size:11px;padding:5px;
+  border:.5px solid var(--border-md);border-radius:var(--r);
+  background:transparent;color:var(--text2);cursor:pointer;transition:background .12s}
+.uuid-toolbar button:hover{background:var(--surface2);color:var(--text)}
+.uuid-toolbar button.primary{background:var(--info-bg);color:var(--info-fg);border-color:var(--info-fg)}
+.uuid-list{display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto;padding-right:2px}
+.uuid-item{display:flex;align-items:center;gap:7px;padding:5px 8px;
+  border:.5px solid var(--border);border-radius:var(--r);
+  cursor:pointer;font-size:11px;color:var(--text2);transition:background .12s}
+.uuid-item:hover{background:var(--surface2)}
+.uuid-item.on{background:var(--info-bg);color:var(--info-fg);border-color:var(--accent)}
+.uuid-item input[type=checkbox]{accent-color:var(--accent);flex-shrink:0}
+.uuid-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uuid-status{font-size:10px;color:var(--text3);margin-top:4px}
+/* proxy config */
+.proxy-row{display:flex;flex-direction:column;gap:4px}
+.proxy-row label{font-size:11px;color:var(--text2)}
+.proxy-input-wrap{display:flex;gap:5px}
+.proxy-input-wrap input{flex:1;font-family:var(--mono);font-size:11px;padding:5px 8px;
+  border:.5px solid var(--border-md);border-radius:var(--r);
+  background:var(--surface2);color:var(--text);outline:none;transition:border-color .15s}
+.proxy-input-wrap input:focus{border-color:var(--accent)}
+.proxy-status{font-size:10px;margin-top:3px}
+.proxy-status.ok{color:var(--ok-fg)}
+.proxy-status.err{color:var(--err-fg)}
+.proxy-status.warn{color:var(--warn-fg)}
+/* run */
+.run-btn{width:100%;padding:10px;border-radius:var(--r);border:none;
+  background:var(--text);color:var(--bg);font-family:var(--mono);font-size:12px;
+  font-weight:500;cursor:pointer;letter-spacing:.05em;transition:opacity .15s;margin-top:auto}
+.run-btn:hover{opacity:.82}
+.run-btn:disabled{opacity:.35;cursor:not-allowed}
+/* main */
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--rl);padding:1.1rem}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:var(--surface2);border-radius:var(--r);padding:11px 13px}
+.stat .v{font-size:22px;font-weight:500;color:var(--text);line-height:1}
+.stat .l{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-top:3px}
+.prog{display:none;margin-top:10px}
+.prog-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:5px}
+.prog-track{height:2px;background:var(--border);border-radius:1px;overflow:hidden}
+.prog-fill{height:100%;background:var(--accent);border-radius:1px;transition:width .3s ease;width:0%}
+/* output files */
+.dl-section{margin-top:14px;display:none}
+.dl-list{display:flex;flex-direction:column;gap:6px}
+.dl-item{display:flex;align-items:center;gap:8px;background:var(--surface2);
+  border-radius:var(--r);padding:8px 12px;font-size:11px}
+.dl-item-name{flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-item-meta{color:var(--text3);white-space:nowrap;font-size:10px}
+.dl-btn{font-family:var(--mono);font-size:11px;padding:4px 10px;
+  border:.5px solid var(--accent);border-radius:var(--r);
+  background:var(--info-bg);color:var(--info-fg);cursor:pointer;white-space:nowrap;flex-shrink:0}
+.dl-btn:hover{opacity:.8}
+.dl-all-btn{width:100%;margin-top:8px;padding:8px;border-radius:var(--r);
+  border:.5px solid var(--border-md);background:transparent;font-family:var(--mono);
+  font-size:11px;color:var(--text);cursor:pointer;transition:background .12s}
+.dl-all-btn:hover{background:var(--surface2)}
+/* log */
+.log-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+.log-clear{font-size:11px;font-family:var(--mono);background:none;border:none;
+  color:var(--text3);cursor:pointer}
+.log-clear:hover{color:var(--text)}
+.log{background:var(--surface2);border:.5px solid var(--border);border-radius:var(--r);
+  padding:10px 12px;height:300px;overflow-y:auto;
+  font-size:11.5px;font-family:var(--mono);line-height:1.85}
+.ll{display:flex;gap:9px}
+.ts{color:var(--text3);flex-shrink:0;font-size:10px;padding-top:1px}
+.ll.ok  .lm{color:var(--ok-fg)}
+.ll.err .lm{color:var(--err-fg)}
+.ll.warn .lm{color:var(--warn-fg)}
+.ll.info .lm{color:var(--info-fg)}
+.ll.plain .lm{color:var(--text2)}
+.log::-webkit-scrollbar,.uuid-list::-webkit-scrollbar{width:4px}
+.log::-webkit-scrollbar-track,.uuid-list::-webkit-scrollbar-track{background:transparent}
+.log::-webkit-scrollbar-thumb,.uuid-list::-webkit-scrollbar-thumb{background:var(--border-md);border-radius:2px}
+@media(max-width:680px){
+  .shell{grid-template-columns:1fr}
+  .sidebar{border-right:none;border-bottom:.5px solid var(--border)}
+  .stat-row{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar">
+  <div class="app-name">log downloader <em>/ itemoptix</em></div>
+
+  <!-- proxy config — the only setup step -->
+  <div>
+    <div class="blk-label">cloudflare proxy</div>
+    <div class="proxy-row">
+      <label>worker url</label>
+      <div class="proxy-input-wrap">
+        <input id="proxy-url" placeholder="https://log-proxy.yourname.workers.dev"
+               oninput="onProxyInput()" onblur="testProxy()"/>
+      </div>
+      <div class="proxy-status warn" id="proxy-status">paste your worker URL above</div>
+    </div>
+  </div>
+
+  <!-- environment -->
+  <div>
+    <div class="blk-label">environment</div>
+    <div class="env-row">
+      <button class="env-btn" id="btn-prod"    onclick="setEnv('prod')">prod</button>
+      <button class="env-btn on" id="btn-preprod" onclick="setEnv('preprod')">preprod</button>
+      <button class="env-btn" id="btn-PR"      onclick="setEnv('PR')">PR</button>
+    </div>
+  </div>
+
+  <!-- paths -->
+  <div style="display:flex;flex-direction:column;gap:9px">
+    <div class="field"><label>root url</label>
+      <input id="root-url" value="https://files-io-preprod.eus1-n.itemoptix.com/"/></div>
+    <div class="field"><label>sub path</label>
+      <input id="sub-path" value=""/></div>
+    <div class="field"><label>min valid size (bytes)</label>
+      <input id="min-size" type="number" value="1" min="0" style="max-width:90px"/></div>
+  </div>
+
+  <!-- dates -->
+  <div>
+    <div class="blk-label">target dates</div>
+    <div class="tag-wrap" id="dates-wrap" onclick="document.getElementById('date-in').focus()">
+      <input id="date-in" placeholder="YYYY-MM-DD, press Enter" onkeydown="onDateKey(event)"/>
+    </div>
+  </div>
+
+  <!-- servers -->
+  <div>
+    <div class="blk-label">process servers</div>
+    <div class="srv-grid" id="srv-grid"></div>
+  </div>
+
+  <!-- uuids -->
+  <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+    <div class="blk-label">device / uuid folders</div>
+    <div class="uuid-toolbar">
+      <button class="primary" onclick="fetchUUIDs()">↓ fetch from url</button>
+      <button onclick="addManualUUID()">+ manual</button>
+    </div>
+    <div class="uuid-list" id="uuid-list"></div>
+    <div class="uuid-status" id="uuid-status">no uuids — fetch or add manually</div>
+  </div>
+
+  <button class="run-btn" id="run-btn" onclick="startRun()">run &amp; download</button>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main class="main">
+
+  <div class="card">
+    <div class="blk-label">summary</div>
+    <div class="stat-row">
+      <div class="stat"><div class="v" id="s-files">0</div><div class="l">attempted</div></div>
+      <div class="stat"><div class="v" id="s-ext">0</div><div class="l">extracted</div></div>
+      <div class="stat"><div class="v" id="s-skip">0</div><div class="l">skipped</div></div>
+      <div class="stat"><div class="v" id="s-err">0</div><div class="l">errors</div></div>
+    </div>
+    <div class="prog" id="prog">
+      <div class="prog-meta">
+        <span id="prog-label">processing…</span>
+        <span id="prog-pct">0%</span>
+      </div>
+      <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+    </div>
+
+    <div class="dl-section" id="dl-section">
+      <div class="blk-label" style="margin-top:14px">output files</div>
+      <div class="dl-list" id="dl-list"></div>
+      <button class="dl-all-btn" onclick="downloadAll()">download all as zip</button>
+    </div>
+  </div>
+
+  <div class="card" style="flex:1">
+    <div class="log-head">
+      <div class="blk-label" style="margin-bottom:0">activity log</div>
+      <button class="log-clear" onclick="clearLog()">clear</button>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+</main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+// ─── Constants ────────────────────────────────────────────────────────────────
+const ENVS = {
+  prod:    "https://files-io-prod.eus1-n.itemoptix.com/",
+  preprod: "https://files-io-preprod.eus1-n.itemoptix.com/",
+  PR:      "https://files-io-pr.eus1-n.itemoptix.com/"
+};
+const DEFAULT_SERVERS = [
+  "processserver-0","processserver-1","processserver-2",
+  "processserver-3","processserver-4"
+];
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let activeServers = new Set(DEFAULT_SERVERS);
+let allUUIDs      = [];
+let dates         = [];
+let outputFiles   = [];
+let stats         = {files:0,extracted:0,skipped:0,errors:0};
+
+// ─── Proxy ───────────────────────────────────────────────────────────────────
+function getProxy(){
+  return (document.getElementById("proxy-url").value||"").trim().replace(/\/+$/,"");
+}
+
+/** Wrap any target URL through the Cloudflare Worker proxy */
+function proxied(targetUrl){
+  const p = getProxy();
+  if(!p) return targetUrl;   // no proxy set — try direct (will CORS-fail cross-origin)
+  return `${p}/proxy/${targetUrl}`;
+}
+
+function onProxyInput(){
+  document.getElementById("proxy-status").textContent = "…";
+  document.getElementById("proxy-status").className   = "proxy-status warn";
+}
+
+async function testProxy(){
+  const p = getProxy();
+  if(!p){
+    setProxyStatus("paste your worker URL above","warn");
+    return;
+  }
+  // Ping a known safe URL through the proxy
+  const testTarget = "https://files-io-preprod.eus1-n.itemoptix.com/";
+  try{
+    setProxyStatus("testing…","warn");
+    const r = await fetch(proxied(testTarget),{method:"GET"});
+    if(r.ok||r.status===404||r.status===403){
+      // Any response (even 4xx) proves the proxy is reachable and CORS is working
+      setProxyStatus("proxy connected","ok");
+    } else {
+      setProxyStatus(`proxy returned HTTP ${r.status}`,"warn");
+    }
+  } catch(e){
+    setProxyStatus("cannot reach proxy — check URL","err");
+  }
+}
+
+function setProxyStatus(msg,cls){
+  const el = document.getElementById("proxy-status");
+  el.textContent = msg;
+  el.className   = "proxy-status "+cls;
+}
+
+// ─── Env ─────────────────────────────────────────────────────────────────────
+function setEnv(e){
+  document.getElementById("root-url").value = ENVS[e];
+  document.querySelectorAll(".env-btn").forEach(b=>b.classList.remove("on"));
+  document.getElementById("btn-"+e).classList.add("on");
+}
+
+// ─── Servers ─────────────────────────────────────────────────────────────────
+function renderServers(){
+  const g = document.getElementById("srv-grid");
+  g.innerHTML = "";
+  DEFAULT_SERVERS.forEach(s=>{
+    const d = document.createElement("div");
+    d.className = "srv"+(activeServers.has(s)?" on":"");
+    d.innerHTML = `<div class="dot"></div><span>${s}</span>`;
+    d.onclick = ()=>{ activeServers.has(s)?activeServers.delete(s):activeServers.add(s); renderServers(); };
+    g.appendChild(d);
+  });
+}
+
+// ─── UUIDs ───────────────────────────────────────────────────────────────────
+function renderUUIDs(){
+  const list = document.getElementById("uuid-list");
+  list.innerHTML = "";
+  allUUIDs.forEach((u,i)=>{
+    const row  = document.createElement("div");
+    row.className = "uuid-item"+(u.checked?" on":"");
+    const short = u.id.length>36 ? u.id.slice(0,8)+"…"+u.id.slice(-8) : u.id;
+    row.innerHTML =
+      `<input type="checkbox" ${u.checked?"checked":""} onchange="toggleUUID(${i},this.checked)"/>
+       <span class="uuid-label" title="${u.id}">${short}</span>
+       <button onclick="removeUUID(${i},event)"
+         style="background:none;border:none;cursor:pointer;color:var(--err-fg);font-size:13px;line-height:1;padding:0">×</button>`;
+    row.onclick = e=>{ if(e.target.tagName!=="BUTTON"&&e.target.tagName!=="INPUT") toggleUUID(i,!u.checked); };
+    list.appendChild(row);
+  });
+  document.getElementById("uuid-status").textContent =
+    allUUIDs.length
+      ? `${allUUIDs.filter(u=>u.checked).length} / ${allUUIDs.length} selected`
+      : "no uuids — fetch or add manually";
+}
+function toggleUUID(i,v){ allUUIDs[i].checked=v; renderUUIDs(); }
+function removeUUID(i,e){ e.stopPropagation(); allUUIDs.splice(i,1); renderUUIDs(); }
+function addManualUUID(){
+  const v = prompt("Paste UUID (with or without trailing /):");
+  if(!v) return;
+  const id = v.trim().replace(/\/+$/,"")+"/";
+  if(!allUUIDs.find(u=>u.id===id)){ allUUIDs.push({id,checked:true}); renderUUIDs(); }
+}
+
+async function fetchUUIDs(){
+  if(!getProxy()){ alert("Set your Cloudflare Worker URL first."); return; }
+  const root    = document.getElementById("root-url").value.replace(/\/+$/,"");
+  const subPath = document.getElementById("sub-path").value;
+  const server  = [...activeServers][0]||"processserver-0";
+  const url     = buildURL(root, server, subPath, "");
+  setUUIDStatus("fetching…");
+  addLog("fetching UUID list: "+url,"info");
+  try{
+    const resp = await fetch(proxied(url));
+    if(!resp.ok){ setUUIDStatus("HTTP "+resp.status); addLog("HTTP "+resp.status+" listing UUIDs","err"); return; }
+    const html = await resp.text();
+    const doc  = new DOMParser().parseFromString(html,"text/html");
+    const RE   = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/?$/i;
+    let found  = 0;
+    doc.querySelectorAll("a[href]").forEach(a=>{
+      const bare = a.getAttribute("href").replace(/\/+$/,"").split("/").pop();
+      if(RE.test(bare)){
+        const id = bare+"/";
+        if(!allUUIDs.find(u=>u.id===id)){ allUUIDs.push({id,checked:true}); found++; }
+      }
+    });
+    renderUUIDs();
+    addLog(`found ${found} new uuid(s)`, found?"ok":"warn");
+  } catch(e){
+    setUUIDStatus("fetch error — check proxy");
+    addLog("fetch error: "+e.message,"err");
+  }
+}
+function setUUIDStatus(m){ document.getElementById("uuid-status").textContent = m; }
+
+// ─── Dates ───────────────────────────────────────────────────────────────────
+function onDateKey(e){
+  if(e.key!=="Enter") return;
+  const v = e.target.value.trim();
+  if(v&&!dates.includes(v)){
+    dates.push(v);
+    const tag = document.createElement("div");
+    tag.className="tag"; tag.id="dtag-"+v;
+    tag.innerHTML=`${v} <button onclick="removeDate('${v}',event)">×</button>`;
+    document.getElementById("dates-wrap").insertBefore(tag,e.target);
+  }
+  e.target.value="";
+}
+function removeDate(d,e){
+  e.stopPropagation();
+  dates=dates.filter(x=>x!==d);
+  document.getElementById("dtag-"+d)?.remove();
+}
+
+// ─── Log ─────────────────────────────────────────────────────────────────────
+const ICONS={ok:"✓",err:"✗",warn:"!",info:"→",plain:"·"};
+function addLog(msg,kind="plain"){
+  const area=document.getElementById("log");
+  const now=new Date().toISOString().slice(11,19);
+  const ll=document.createElement("div");
+  ll.className="ll "+kind;
+  const safe=msg.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  ll.innerHTML=`<span class="ts">${now}</span><span class="lm">${ICONS[kind]||"·"} ${safe}</span>`;
+  area.appendChild(ll);
+  area.scrollTop=area.scrollHeight;
+}
+function clearLog(){ document.getElementById("log").innerHTML=""; }
+
+// ─── Stats ───────────────────────────────────────────────────────────────────
+function updateStats(){
+  document.getElementById("s-files").textContent=stats.files;
+  document.getElementById("s-ext").textContent=stats.extracted;
+  document.getElementById("s-skip").textContent=stats.skipped;
+  document.getElementById("s-err").textContent=stats.errors;
+}
+function setProgress(label,pct){
+  const p=document.getElementById("prog");
+  p.style.display="block";
+  document.getElementById("prog-label").textContent=label;
+  document.getElementById("prog-pct").textContent=Math.round(pct)+"%";
+  document.getElementById("prog-fill").style.width=pct+"%";
+}
+
+// ─── URL helpers ─────────────────────────────────────────────────────────────
+function buildURL(root,server,subPath,uuid){
+  const r  =root.replace(/\/+$/,"");
+  const sub=subPath.replace(/^\/+/,"").replace(/\/+$/,"");
+  const u  =(uuid||"").replace(/\/+$/,"");
+  return [r,server,sub,u].filter(Boolean).join("/")+"/";
+}
+function resolveHref(baseUrl,href){
+  if(/^https?:\/\//i.test(href)) return href;
+  if(href.startsWith("/")){
+    const u=new URL(baseUrl); return u.origin+href;
+  }
+  return baseUrl.replace(/\/+$/,"")+"/"+href.replace(/^\/+/,"");
+}
+
+// ─── GZ decompression ────────────────────────────────────────────────────────
+function decompressGZ(buf){
+  return new Promise((res,rej)=>{
+    try{
+      const inflated=fflate.decompressSync(new Uint8Array(buf));
+      res(new TextDecoder("utf-8",{fatal:false}).decode(inflated));
+    } catch(e){ rej(e); }
+  });
+}
+
+// ─── Log sorting ─────────────────────────────────────────────────────────────
+const TS_PATS=[
+  /(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)/,
+  /(\d{2}\/\w{3}\/\d{4}:\d{2}:\d{2}:\d{2})/,
+  /(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2})/,
+  /(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2})/,
+];
+const MONTHS={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",
+              jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12"};
+function parseTS(s){
+  s=s.replace(",",".");
+  let m;
+  if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/)))
+    return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
+  if((m=s.match(/^(\d{2})\/(\w{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2})/)))
+    return new Date(`${m[3]}-${MONTHS[m[2].toLowerCase()]||"01"}-${m[1]}T${m[4]}:${m[5]}:${m[6]}`);
+  if((m=s.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})/)))
+    return new Date(`${m[3]}-${m[1]}-${m[2]}T${m[4]}:${m[5]}:${m[6]}`);
+  if((m=s.match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})/)))
+    return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
+  return null;
+}
+function extractTS(line){
+  for(const p of TS_PATS){ const m=line.match(p); if(m){ const d=parseTS(m[1]); if(d&&!isNaN(d)) return d; } }
+  return null;
+}
+function sortLogContent(content){
+  const lines=content.split("\n");
+  const entries=[];
+  let cur={ts:new Date(0),lines:[]};
+  for(const line of lines){
+    const ts=extractTS(line);
+    if(ts){ if(cur.lines.length) entries.push(cur); cur={ts,lines:[line]}; }
+    else cur.lines.push(line);
+  }
+  if(cur.lines.length) entries.push(cur);
+  entries.sort((a,b)=>a.ts-b.ts);
+  return entries.map(e=>e.lines.join("\n")).join("\n");
+}
+
+// ─── Download to disk ────────────────────────────────────────────────────────
+function shouldDownload(href){
+  const name=href.split("?")[0];
+  return name.endsWith(".gz")&&dates.some(d=>name.includes(d));
+}
+function triggerDownload(filename,content){
+  const blob=new Blob([content],{type:"text/plain;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+function registerOutput(name,content){
+  outputFiles.push({name,content});
+  const section=document.getElementById("dl-section");
+  const list=document.getElementById("dl-list");
+  section.style.display="block";
+  const i=outputFiles.length-1;
+  const kb=(new Blob([content]).size/1024).toFixed(1);
+  const item=document.createElement("div");
+  item.className="dl-item";
+  item.innerHTML=
+    `<span class="dl-item-name" title="${name}">${name}</span>
+     <span class="dl-item-meta">${kb} KB</span>
+     <button class="dl-btn" onclick="triggerDownload(outputFiles[${i}].name,outputFiles[${i}].content)">download</button>`;
+  list.appendChild(item);
+}
+async function downloadAll(){
+  if(!outputFiles.length){ alert("No output files yet."); return; }
+  const zip=new JSZip();
+  outputFiles.forEach(f=>zip.file(f.name,f.content));
+  const blob=await zip.generateAsync({type:"blob"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download="logs.zip";
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+
+// ─── Main run ────────────────────────────────────────────────────────────────
+async function startRun(){
+  if(!getProxy()){ alert("Set your Cloudflare Worker URL first."); return; }
+  const selectedUUIDs=allUUIDs.filter(u=>u.checked).map(u=>u.id);
+  if(!selectedUUIDs.length){ alert("Select at least one UUID."); return; }
+  if(!dates.length){ alert("Add at least one target date."); return; }
+  if(![...activeServers].length){ alert("Select at least one server."); return; }
+
+  document.getElementById("run-btn").disabled=true;
+  document.getElementById("dl-section").style.display="none";
+  document.getElementById("dl-list").innerHTML="";
+  clearLog();
+  outputFiles=[];
+  stats={files:0,extracted:0,skipped:0,errors:0};
+  updateStats();
+
+  const root    =document.getElementById("root-url").value.replace(/\/+$/,"");
+  const subPath =document.getElementById("sub-path").value;
+  const minSize =parseInt(document.getElementById("min-size").value)||1;
+  const servers =[...activeServers];
+
+  addLog(`starting — ${selectedUUIDs.length} uuid(s), ${servers.length} server(s), ${dates.length} date(s)`,"info");
+  addLog(`root: ${root}`,"plain");
+  addLog(`proxy: ${getProxy()}`,"plain");
+  addLog("sorted oldest → newest on save","info");
+
+  const total=selectedUUIDs.length*servers.length;
+  let step=0;
+
+  for(const uuid of selectedUUIDs){
+    const uuidName=uuid.replace(/\/+$/,"");
+    addLog(`── uuid: ${uuidName}`,"info");
+    const uuidAll=[];
+
+    for(const server of servers){
+      const serverUrl=buildURL(root,server,subPath,uuidName);
+      addLog(`listing ${serverUrl}`,"plain");
+
+      try{
+        const listResp=await fetch(proxied(serverUrl));
+        if(!listResp.ok){
+          addLog(`HTTP ${listResp.status} listing ${serverUrl}`,"warn");
+          stats.errors++; updateStats(); step++;
+          setProgress(`${server} / ${uuidName.slice(0,12)}…`,(step/total)*100);
+          continue;
+        }
+        const html=await listResp.text();
+        const doc=new DOMParser().parseFromString(html,"text/html");
+        const links=[...doc.querySelectorAll("a[href]")];
+        addLog(`  ${links.length} link(s) in listing`,"plain");
+
+        let serverContent="";
+        for(const a of links){
+          const href=a.getAttribute("href");
+          if(!shouldDownload(href)){ continue; }
+          const fullUrl=resolveHref(serverUrl,href);
+          addLog(`  ↓ ${href}`,"info");
+          stats.files++; updateStats();
+          try{
+            const r=await fetch(proxied(fullUrl));
+            if(!r.ok){ addLog(`  HTTP ${r.status} — skipping`,"warn"); stats.skipped++; updateStats(); continue; }
+            const buf=await r.arrayBuffer();
+            if(buf.byteLength<minSize){
+              addLog(`  too small (${buf.byteLength}B) — skipping`,"warn");
+              stats.skipped++; updateStats(); continue;
+            }
+            const text=await decompressGZ(buf);
+            addLog(`  extracted ${text.length} chars`,"plain");
+            serverContent+=text+"\n";
+            stats.extracted++; updateStats();
+          } catch(fe){
+            addLog(`  error: ${fe.message}`,"err");
+            stats.errors++; updateStats();
+          }
+        }
+
+        if(serverContent){
+          const sorted=sortLogContent(serverContent);
+          const fname=`${uuidName}__${server}__merged.txt`;
+          registerOutput(fname,sorted);
+          addLog(`  saved (sorted): ${fname}`,"ok");
+          uuidAll.push(serverContent);
+        } else {
+          addLog(`  no matching files on ${server}`,"warn");
+        }
+      } catch(e){
+        addLog(`error on ${server}: ${e.message}`,"err");
+        stats.errors++; updateStats();
+      }
+
+      step++;
+      setProgress(`${server} / ${uuidName.slice(0,12)}…`,(step/total)*100);
+    }
+
+    if(uuidAll.length){
+      const sorted=sortLogContent(uuidAll.join("\n"));
+      const fname=`${uuidName}__merged_all_servers.txt`;
+      registerOutput(fname,sorted);
+      addLog(`uuid-level merged (sorted): ${fname}`,"ok");
+    }
+  }
+
+  setProgress("complete",100);
+  addLog(`done — ${stats.files} attempted, ${stats.extracted} extracted, ${stats.skipped} skipped, ${stats.errors} errors`,"info");
+  document.getElementById("run-btn").disabled=false;
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+renderServers();
+renderUUIDs();
+// Restore proxy URL from localStorage if previously saved
+const savedProxy=localStorage.getItem("logdl_proxy");
+if(savedProxy){ document.getElementById("proxy-url").value=savedProxy; testProxy(); }
+document.getElementById("proxy-url").addEventListener("change",()=>{
+  localStorage.setItem("logdl_proxy", getProxy());
+});
+addLog("ready — set your Cloudflare Worker URL, then configure and run","info");
+</script>
+</body>
+</html>
