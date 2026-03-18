@@ -387,12 +387,9 @@ async function listDir(url, filter, debug=false){
   if(!resp.ok) throw new Error(`HTTP ${resp.status} from ${url}`);
   const html = await resp.text();
 
-  // Guard: detect when the proxy URL is wrong and returning the app's own page
-  if(html.includes("Log Downloader") && html.includes("cloudflare proxy")){
-    throw new Error(
-      "Worker returned the app's own HTML — Worker URL is wrong. "+
-      "It must be https://something.workers.dev, not a GitHub Pages URL."
-    );
+  // Guard: worker returned an error string (e.g. invalid URL, host not allowed)
+  if(!resp.ok){
+    throw new Error(`HTTP ${resp.status} — ${html.slice(0,120)}`);
   }
 
   if(debug){
